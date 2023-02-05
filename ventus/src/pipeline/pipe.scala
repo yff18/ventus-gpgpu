@@ -171,6 +171,24 @@ class pipe extends Module{
 
   simt_stack.io.input_wid:=operand_collector.io.out.bits.control.wid//ibuffer2issue.io.out.bits.wid
 
+  // inst into operand collector
+//  when(operand_collector.io.control.fire) {
+//    printf(p"inst into operand collector: warp: 0x${operand_collector.io.control.bits.wid} pc 0x${Hexadecimal(operand_collector.io.control.bits.pc)} 0x${Hexadecimal(operand_collector.io.control.bits.inst)}\n")
+//  }
+  // prepared inst from operand collector
+  when(operand_collector.io.out.fire){
+    printf(p"inst from operand collector: warp: 0x${operand_collector.io.out.bits.control.wid} pc 0x${Hexadecimal(operand_collector.io.out.bits.control.pc)} 0x${Hexadecimal(operand_collector.io.out.bits.control.inst)}")
+    printf(p" operand:")
+    operand_collector.io.out.bits.alu_src1.reverse.foreach(x=>printf(p"${Hexadecimal(x.asUInt)}"))
+    printf(p" ")
+    operand_collector.io.out.bits.alu_src2.reverse.foreach(x=>printf(p"${Hexadecimal(x.asUInt)}"))
+    printf(p" ")
+    operand_collector.io.out.bits.alu_src3.reverse.foreach(x=>printf(p"${Hexadecimal(x.asUInt)}"))
+    printf(p" ")
+    operand_collector.io.out.bits.mask.reverse.foreach(x=>printf(p"${Hexadecimal(x.asUInt)}"))
+    printf(p"\n")
+  }
+
   when(io.icache_req.fire&(io.icache_req.bits.warpid===2.U)){
     //printf(p"wid=${io.icache_req.bits.warpid},pc=0x${Hexadecimal(io.icache_req.bits.addr)}\n")
   }
@@ -187,11 +205,12 @@ class pipe extends Module{
   //输出所有write mem的操作
   val wid_to_check = 2.U //exe_data.io.deq.bits.ctrl.wid===wid_to_check&
   when( exe_data.io.deq.fire&exe_data.io.deq.bits.ctrl.mem_cmd===2.U){
-    printf(p"warp${exe_data.io.deq.bits.ctrl.wid} 0x${Hexadecimal(exe_data.io.deq.bits.ctrl.pc)},inst=0x${Hexadecimal(exe_data.io.deq.bits.ctrl.inst)} ,writedata=")
+    printf(p"write mem: warp${exe_data.io.deq.bits.ctrl.wid} 0x${Hexadecimal(exe_data.io.deq.bits.ctrl.pc)},inst=0x${Hexadecimal(exe_data.io.deq.bits.ctrl.inst)} ,writedata=")
     exe_data.io.deq.bits.in3.foreach(x=>{printf(p"${Hexadecimal(x.asUInt)} ")})
     printf(p"mask ${exe_data.io.deq.bits.mask} at${Hexadecimal(exe_data.io.deq.bits.in1(0))},${Hexadecimal(exe_data.io.deq.bits.in2(0))}")
     printf(p"\n")
   }
+
   //输出所有发射的指令
   //when( exe_data.io.deq.fire()){
   //  printf(p"${exe_data.io.deq.bits.ctrl.wid},0x${Hexadecimal(exe_data.io.deq.bits.ctrl.pc)},writedata=")
