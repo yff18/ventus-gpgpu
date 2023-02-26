@@ -177,7 +177,7 @@ class pipe extends Module{
 //  }
   // prepared inst from operand collector
   when(operand_collector.io.out.fire){
-    printf(p"inst from operand collector: warp: 0x${operand_collector.io.out.bits.control.wid} pc 0x${Hexadecimal(operand_collector.io.out.bits.control.pc)} 0x${Hexadecimal(operand_collector.io.out.bits.control.inst)}")
+    printf(p"inst from operand collector: warp ${operand_collector.io.out.bits.control.wid} pc 0x${Hexadecimal(operand_collector.io.out.bits.control.pc)} 0x${Hexadecimal(operand_collector.io.out.bits.control.inst)}")
     printf(p" operand:")
     operand_collector.io.out.bits.alu_src1.reverse.foreach(x=>printf(p"${Hexadecimal(x.asUInt)}"))
     printf(p" ")
