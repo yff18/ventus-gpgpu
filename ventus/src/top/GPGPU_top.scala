@@ -133,14 +133,27 @@ class GPGPU_top(implicit p: Parameters) extends RVGModule{
     val out_d=Flipped(Decoupled(new TLBundleD_lite(l2cache_params)))
   })
   val cta = Module(new CTAinterface)
-  val sm_wrapper=VecInit(Seq.fill(NSms)(Module(new SM_wrapper).io))
+  //val sm_wrapper=VecInit(Seq.fill(NSms)(Module(new SM_wrapper).io))
+  val smCluster = VecInit(Seq.fill(NCluster)(Module(new SMCluster(l2cache_params_l)).io))
   val l2cache=Module(new Scheduler(l2cache_params))
-  val sm2clusterArb = VecInit(Seq.fill(NCluster)(Module(new SM2clusterArbiter(l2cache_params_l)).io))
+ // val sm2clusterArb = VecInit(Seq.fill(NCluster)(Module(new SM2clusterArbiter(l2cache_params_l)).io))
   val cluster2l2Arb = Module(new cluster2L2Arbiter(l2cache_params_l,l2cache_params)).io
  // val sm2L2Arb = Module(new SM2L2Arbiter(l2cache_params))
+  //val ctareq = Wire(Vec(NCluster,Vec(NSmInCluster,Decoupled(new CTAreqData))))
+  //ctareq <> cta.io.CTA2warp.asTypeOf(Vec(NCluster,Vec(NSmInCluster,Decoupled(new CTAreqData))))
+  //val ctarsp = Wire(Vec(NCluster, Vec(NSmInCluster, Flipped(Decoupled(new CTArspData)))))
+  //ctarsp <> cta.io.CTA2warp.asTypeOf(Vec(NCluster, Vec(NSmInCluster, Flipped(Decoupled(new CTArspData)))))
+  for(i<-0 until NCluster){
+    for(j<-0 until NSmInCluster){
+      cta.io.CTA2warp(i * NSmInCluster + j) <> smCluster(i).CTAreq(j)
+      cta.io.warp2CTA(i * NSmInCluster + j) <> smCluster(i).CTArsp(j)
+    }
+  }
 
   for (i<- 0 until NCluster) {
-    for(j<- 0 until NSmInCluster) {
+    //smCluster(i).CTAreq.map(_.valid) := ctareq(i).map(_.valid)
+     // ctarsp(i) <> smCluster(i).CTArsp
+  /*  for(j<- 0 until NSmInCluster) {
       cta.io.CTA2warp(i * NSmInCluster + j) <> sm_wrapper(i * NSmInCluster + j).CTAreq
       cta.io.warp2CTA(i * NSmInCluster + j) <> sm_wrapper(i * NSmInCluster + j).CTArsp
      //sm2clusterArb(i).memReqVecIn(j) <> sm_wrapper(i * NSmInCluster + j).memReq
@@ -151,9 +164,9 @@ class GPGPU_top(implicit p: Parameters) extends RVGModule{
       sm_wrapper(i * NSmInCluster + j).memRsp.bits := sm2clusterArb(i).memRspVecOut(j).bits
       sm_wrapper(i * NSmInCluster + j).memRsp.valid := sm2clusterArb(i).memRspVecOut(j).valid
        sm2clusterArb(i).memRspVecOut(j).ready := sm_wrapper(i * NSmInCluster + j).memRsp.ready
-    }
-    cluster2l2Arb.memReqVecIn(i) <> sm2clusterArb(i).memReqOut
-    sm2clusterArb(i).memRspIn <> cluster2l2Arb.memRspVecOut(i)
+    }*/
+    cluster2l2Arb.memReqVecIn(i) <> smCluster(i).memReqOut
+    smCluster(i).memRspIn <> cluster2l2Arb.memRspVecOut(i)
   //  sm_wrapper(i).memRsp <> sm2L2Arb.io.memRspVecOut(i)
   //  sm2L2Arb.io.memReqVecIn(i) <> sm_wrapper(i).memReq
   }
@@ -368,6 +381,25 @@ class SM2clusterArbiter(L2param: InclusiveCacheParameters_lite)(implicit p: Para
       Reverse(Cat(io.memRspVecOut.map(_.ready)))) //TODO check order in test
   }
   // ****************
+}
+
+class SMCluster(L2param: InclusiveCacheParameters_lite)(implicit p: Parameters) extends RVGModule{
+  val io = IO(new Bundle {
+    val CTAreq = Vec(NSmInCluster,Flipped(Decoupled(new CTAreqData)))
+    val CTArsp = Vec(NSmInCluster,(Decoupled(new CTArspData)))
+    val memReqOut = Decoupled(new TLBundleA_lite(L2param))
+    val memRspIn = Flipped(Decoupled(new TLBundleD_lite_plus(L2param)))
+  })
+  val sm_wrapper = VecInit(Seq.fill(NSmInCluster)(Module(new SM_wrapper).io))
+  val sm2clusterArb = Module(new SM2clusterArbiter(L2param))
+  for(i<- 0 until NSmInCluster){
+    io.CTAreq(i) <> sm_wrapper(i).CTAreq
+    sm_wrapper(i).CTArsp <> io.CTArsp(i)
+    sm2clusterArb.io.memReqVecIn(i) <> sm_wrapper(i).memReq
+    sm_wrapper(i).memRsp <> sm2clusterArb.io.memRspVecOut(i)
+  }
+  sm2clusterArb.io.memRspIn <> io.memRspIn
+  io.memReqOut <> sm2clusterArb.io.memReqOut
 }
 
 class cluster2L2ArbiterIO(L2paramIn: InclusiveCacheParameters_lite,L2paramOut: InclusiveCacheParameters_lite)(implicit p: Parameters) extends RVGBundle{
