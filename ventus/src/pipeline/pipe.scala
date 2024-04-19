@@ -122,6 +122,7 @@ class pipe extends Module{
   operand_collector.io.vgpr_base:=csrfile.io.vgpr_base
   warp_sche.io.warpReq<>io.warpReq
   warp_sche.io.warpRsp<>io.warpRsp
+  warp_sche.io.flushDCache <> lsu.io.flush_dcache
 
   //flush:=(warp_sche.io.branch.fire()&warp_sche.io.branch.bits.jump) | ()
   flush:=warp_sche.io.flush.valid
