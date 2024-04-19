@@ -295,7 +295,7 @@ class AdvancedTest extends AnyFreeSpec with ChiselScalatestTester{ // Working in
 
     val mem = new MemBox
 
-    test(new GPGPU_SimWrapper(FakeCache = false)).withAnnotations(Seq(VerilatorBackendAnnotation, WriteVcdAnnotation)){ c =>
+    test(new GPGPU_SimWrapper(FakeCache = false)).withAnnotations(Seq(VerilatorBackendAnnotation, WriteFstAnnotation)){ c =>
       c.io.host_req.initSource()
       c.io.host_req.setSourceClock(c.clock)
       c.io.out_d.initSource()
@@ -304,7 +304,7 @@ class AdvancedTest extends AnyFreeSpec with ChiselScalatestTester{ // Working in
       c.io.host_rsp.setSinkClock(c.clock)
       c.io.out_a.initSink()
       c.io.out_a.setSinkClock(c.clock)
-      c.clock.setTimeout(1000)
+      c.clock.setTimeout(6000)
       c.clock.step(5)
 
       var meta = new MetaData
@@ -374,8 +374,15 @@ class AdvancedTest extends AnyFreeSpec with ChiselScalatestTester{ // Working in
         }
       }
       print(s"FIN ${clock_cnt} |")
-      c.io.inst_cnt.zipWithIndex.foreach{ case(x, i) =>
-        print(s" [${i}: ${x.peek.litValue.toInt}]")
+      if(top.parameters.INST_CNT){
+        c.io.inst_cnt.zipWithIndex.foreach{ case(x, i) =>
+          print(s" [${i}: ${x.peek.litValue.toInt}]")
+        }
+      }
+      else if(top.parameters.INST_CNT_2){
+        c.io.inst_cnt.zipWithIndex.foreach{ case(x, i) =>
+          print(s" [${i}: X: ${x.peek.litValue & ((BigInt(1) << 32) - 1)} V: ${x.peek.litValue >> 32}]")
+        }
       }
       print("\n")
       Seq.fill(3){
