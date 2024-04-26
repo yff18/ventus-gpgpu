@@ -130,7 +130,7 @@ class AddrCalculate(val sharedmemory_addr_max: UInt = 4096.U(32.W)) extends Modu
   io.csr_wid:=reg_save.ctrl.wid
   //val rdy_fromFIFO = Reg(Bool())
   io.from_fifo.ready := state===s_idle && !io.flush_dcache.valid
-  io.flush_dcache := state === s_idle
+  io.flush_dcache.ready := state === s_idle
   val reg_entryID = RegInit(0.U(log2Up(lsu_nMshrEntry).W))
 
   val addr = Wire(Vec(num_thread, UInt(xLen.W)))
@@ -249,7 +249,7 @@ class AddrCalculate(val sharedmemory_addr_max: UInt = 4096.U(32.W)) extends Modu
     param_wire :=0.U
   }.elsewhen(is_flush) {
     opcode_wire := 3.U
-    param_wire := 1.U
+    param_wire := 0.U
   }.otherwise{
     opcode_wire :=reg_save.ctrl.mem_cmd(1)
     param_wire :=0.U
@@ -283,7 +283,7 @@ class AddrCalculate(val sharedmemory_addr_max: UInt = 4096.U(32.W)) extends Modu
     }
     is (s_save){
       when(reg_save.ctrl.mem_cmd.orR){ // read or write
-        when(all_shared){ // shared memory
+        when(all_shared && !is_flush){ // shared memory
           when(io.to_mshr.fire()){state := s_shared}.otherwise{state := s_save}
         }.otherwise{ // dcache
             when(io.to_mshr.fire()) {

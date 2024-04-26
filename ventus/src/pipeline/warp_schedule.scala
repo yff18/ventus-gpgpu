@@ -89,7 +89,7 @@ class warp_scheduler extends Module{
   val warp_bar_exp=RegInit(VecInit(Seq.fill(num_block)(0.U(num_warp_in_a_block.W))))
   val warp_endprg_cnt = RegInit(VecInit(Seq.fill(num_block)(0.U(num_warp_in_a_block.W))))
   val warp_wg_valid = RegInit(VecInit(Seq.fill(num_block)(false.B)))
-  val warp_endprg_mask_0 = Wire(VecInit(Seq.fill(num_block)(false.B)))
+  val warp_endprg_mask_0 = WireInit(VecInit(Seq.fill(num_block)(false.B)))
   //val warp_bar_cur_next=warp_bar_cur
   //val warp_bar_exp_next=warp_bar_exp
   val warp_bar_lock=WireInit(VecInit(Seq.fill(num_block)(false.B))) //equals to "active block"
