@@ -10,6 +10,7 @@
  * See the Mulan PSL v2 for more details. */
 package play
 
+import L1Cache.DCache.L1RTAB
 import L1Cache.MyConfig
 import L2cache.TLBundleD_lite
 import chisel3._
@@ -47,6 +48,15 @@ class hello_test2 extends AnyFreeSpec with ChiselScalatestTester{
     test(new GPGPU_ExtMemWrapper(TestCaseList(caseName))).withAnnotations(Seq(WriteVcdAnnotation)){ c =>
       c.clock.setTimeout(0)
       c.clock.step(TestCaseList(caseName).cycles)
+    }
+  }
+}
+class cache_submodule_test extends AnyFreeSpec with ChiselScalatestTester{
+  "first_test" in {
+    val param = (new MyConfig).toInstance
+    test(new L1RTAB()(param)).withAnnotations(Seq(WriteVcdAnnotation)){ c =>
+      c.clock.step(5
+      )
     }
   }
 }
@@ -393,3 +403,4 @@ class AdvancedTest extends AnyFreeSpec with ChiselScalatestTester{ // Working in
     }
   }
 }
+

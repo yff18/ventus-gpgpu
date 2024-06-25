@@ -18,6 +18,12 @@ class tagCheckerResult(way: Int) extends Bundle{
   val waymask = UInt(way.W)
   val hit = Bool()
 }
+class hitStatus(way: Int, tagBits: Int) extends Bundle{
+  val waymask = UInt(way.W)
+  val tag = UInt(tagBits.W)
+  val isDirty = Bool()
+  val hit = Bool()
+}
 //This module contain Tag memory, its valid bits, tag comparator, and Replacement Unit
 class L1TagAccess(set: Int, way: Int, tagBits: Int, readOnly: Boolean)extends Module{
   val io = IO(new Bundle {
@@ -25,9 +31,11 @@ class L1TagAccess(set: Int, way: Int, tagBits: Int, readOnly: Boolean)extends Mo
     val probeRead = Flipped(Decoupled(new SRAMBundleA(set)))//Probe Channel
     val tagFromCore_st1 = Input(UInt(tagBits.W))
     val probeIsWrite_st1 = if(!readOnly){Some(Input(Bool()))} else None
+    val probeIsUncache_st1 = Input(Bool())
     //val coreReqReady = Input(Bool())//TODO try to replace with probeRead.fire
     //To coreReq_pipe1
     val hit_st1 = Output(Bool())
+    val hitStatus_st1 = Output(new hitStatus(way, tagBits))
     val waymaskHit_st1 = Output(UInt(way.W))
     //From memRsp_pipe0
     val allocateWrite = Flipped(ValidIO(new SRAMBundleA(set)))//Allocate Channel
@@ -148,10 +156,13 @@ class L1TagAccess(set: Int, way: Int, tagBits: Int, readOnly: Boolean)extends Mo
 
   cachehit_hold.io.enq.bits.hit := iTagChecker.io.cache_hit && !probeReadBuf.ready
   cachehit_hold.io.enq.bits.waymask := Mux(!probeReadBuf.ready, iTagChecker.io.waymask ,0.U)
-  cachehit_hold.io.enq.valid := probeReadBuf.valid
+  cachehit_hold.io.enq.valid := probeReadBuf.valid && !probeReadBuf.ready
   cachehit_hold.io.deq.ready := probeReadBuf.ready
   //val cachehit_hold = RegNext(iTagChecker.io.cache_hit && probeReadBuf.valid && !probeReadBuf.ready)
   io.hit_st1 := (iTagChecker.io.cache_hit || cachehit_hold.io.deq.bits.hit && cachehit_hold.io.deq.valid) && probeReadBuf.valid//RegNext(io.probeRead.fire)
+  io.hitStatus_st1.hit := (iTagChecker.io.cache_hit || cachehit_hold.io.deq.bits.hit && cachehit_hold.io.deq.valid) && probeReadBuf.valid
+  io.hitStatus_st1.waymask := Mux(cachehit_hold.io.deq.valid && cachehit_hold.io.deq.bits.hit,cachehit_hold.io.deq.bits.waymask,iTagChecker.io.waymask)
+  io.hitStatus_st1.isDirty := way_dirty(probeReadBuf.bits.setIdx)(OHToUInt(iTagChecker.io.waymask))
   io.waymaskHit_st1 := Mux(cachehit_hold.io.deq.valid && cachehit_hold.io.deq.bits.hit,cachehit_hold.io.deq.bits.waymask,iTagChecker.io.waymask)
   if(!readOnly){//tag_array::write_hit_mark_dirty
     assert(!(iTagChecker.io.cache_hit && io.probeIsWrite_st1.get && io.flushChoosen.get.valid),"way_dirty write-in conflict!")
@@ -161,6 +172,8 @@ class L1TagAccess(set: Int, way: Int, tagBits: Int, readOnly: Boolean)extends Mo
       way_dirty(io.flushChoosen.get.bits((log2Up(set)+way)-1,way))(OHToUInt(io.flushChoosen.get.bits(way-1,0))) := false.B
     }.elsewhen(io.needReplace.get) {
       way_dirty(allocateWrite_st1.setIdx)(OHToUInt(Replacement.io.waymask_st1)) := false.B
+    }.elsewhen(iTagChecker.io.cache_hit && io.probeIsUncache_st1){
+      way_dirty(RegNext(io.probeRead.bits.setIdx))(OHToUInt(iTagChecker.io.waymask)) := false.B
     }
   }
 
@@ -186,6 +199,8 @@ class L1TagAccess(set: Int, way: Int, tagBits: Int, readOnly: Boolean)extends Mo
     way_valid(allocateWrite_st1.setIdx)(OHToUInt(Replacement.io.waymask_st1)) := true.B
   }.elsewhen(io.invalidateAll){//tag_array::invalidate_all()
     way_valid := VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(false.B))))
+  }.elsewhen (iTagChecker.io.cache_hit && io.probeIsUncache_st1) {
+    way_dirty(probeReadBuf.bits.setIdx)(OHToUInt(iTagChecker.io.waymask)) := false.B
   }
   assert(!(io.allocateWrite.valid && io.invalidateAll))
 

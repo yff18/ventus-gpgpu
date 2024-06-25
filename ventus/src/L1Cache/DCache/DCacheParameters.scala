@@ -42,7 +42,7 @@ trait HasDCacheParameter extends HasL1CacheParameters {
   //                                       |   blockOffset  |
   //                                     bankOffset       wordOffset
   // |32      tag       22|21   setIdx   11|10 9|8 bankIdx 2|1 0|
-
+  def NRTABs: Int = 4
   //TL params
   def TLAOp_Get: UInt = 4.U(3.W)
   def TLAOp_PutFull: UInt = 0.U(3.W)

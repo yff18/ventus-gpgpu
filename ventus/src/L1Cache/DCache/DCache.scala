@@ -34,6 +34,7 @@ class DCacheControl extends Bundle{
   val isFlush = Bool()
   val isInvalidate = Bool()
   val isWaitMSHR = Bool()
+  val isUncached = Bool()
 }
 
 class genControl extends Module{
@@ -80,7 +81,7 @@ class genControl extends Module{
     }
   }
 }
-
+//For subword request: lsu req will only use the LSBs, didn't reflect the real addr offset
 class genDataMapPerByte(numdata:Int, NLanes:Int) extends Module{
   val io = IO(new Bundle{
     val OriData = Input(Vec(numdata,UInt(NLanes.W)))
@@ -99,7 +100,7 @@ class genDataMapPerByte(numdata:Int, NLanes:Int) extends Module{
     }
   }
 }
-
+// gather the request aim for same word, for subword request
 class genDataMapSameWord(implicit p: Parameters) extends DCacheModule{
   val io = IO(new Bundle {
     val perLaneAddr = Input(Vec(NLanes, new DCachePerLaneAddr))
@@ -132,6 +133,96 @@ class genDataMapSameWord(implicit p: Parameters) extends DCacheModule{
   }
 }
 
+class DataXbar(implicit p: Parameters) extends DCacheModule{
+  val io = IO(new Bundle {
+    val perLaneAddr = Input(Vec(NLanes, new DCachePerLaneAddr))
+    val datain = Input(Vec(NLanes,UInt(WordLength.W)))
+    val perBlockMask = Output(Vec(dcache_BlockWords,UInt(BytesOfWord.W)))
+    val dataout = Output(Vec(dcache_BlockWords,UInt(WordLength.W)))
+  })
+  val LaneBlockConv = Wire(Vec(dcache_BlockWords,Vec(NLanes,UInt(1.W))))
+  val WordOffsetConv = Wire(Vec(dcache_BlockWords,UInt(BytesOfWord.W)))
+
+  for (j <- 0 until dcache_BlockWords) {
+    for (i <- 0 until NLanes) {
+      when(io.perLaneAddr(i).blockOffset === j.asUInt && io.perLaneAddr(i).activeMask) {
+        LaneBlockConv(j)(i) := 1.U
+      }.otherwise {
+        LaneBlockConv(j)(i) := 0.U
+      }
+    }
+  }
+  for (j <- 0 until dcache_BlockWords) {
+    io.dataout(j) := io.datain.zip(LaneBlockConv(j)).map { case (a, b) => Mux(b.asBool, a, 0.U) }.reduce(_ | _)
+    WordOffsetConv(j) := io.perLaneAddr.zip(LaneBlockConv(j)).map { case (a, b) => Mux(b.asBool, a.wordOffset1H, 0.U) }.reduce(_ | _)
+    io.perBlockMask(j) := WordOffsetConv(j)
+  }
+}
+
+class DataGather(implicit p: Parameters) extends DCacheModule{
+  val io = IO(new Bundle {
+    val data_in_old = Input(Vec(dcache_BlockWords, UInt(WordLength.W)))
+    val data_in_new = Input(Vec(dcache_BlockWords, UInt(WordLength.W)))
+    val mask_in_new = Input(Vec(dcache_BlockWords,UInt(BytesOfWord.W)))
+    val data_out = Output(Vec(dcache_BlockWords, UInt(WordLength.W)))
+  })
+  val data = Wire(Vec(dcache_BlockWords,Vec(BytesOfWord,UInt(8.W))))
+  for(i<-0 until dcache_BlockWords){
+    switch(io.mask_in_new(i)){
+      is(0.U){
+        io.data_out(i) := io.data_in_old(i)
+      }
+      is(1.U){
+        io.data_out(i) := Cat(io.data_in_old(i)(31,8),io.data_in_new(i)(7,0))
+      }
+      is(2.U){
+        io.data_out(i) := Cat(io.data_in_old(i)(31,16),io.data_in_new(i)(15,8),io.data_in_old(i)(7,0))
+      }
+      is(3.U) {
+        io.data_out(i) := Cat(io.data_in_old(i)(31, 16), io.data_in_new(i)(15,0))
+      }
+      is(4.U) {
+        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 16), io.data_in_old(i)(15, 0))
+      }
+      is(5.U) {
+        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 16), io.data_in_old(i)(15, 8),io.data_in_new(i)(7,0))
+      }
+      is(6.U) {
+        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 8), io.data_in_old(i)(7, 0))
+      }
+      is(7.U) {
+        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 0))
+      }
+      is(8.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 0))
+      }
+      is(9.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 8),io.data_in_new(i)(7,0))
+      }
+      is(10.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 16), io.data_in_new(i)(15, 8),io.data_in_old(i)(7, 0))
+      }
+      is(11.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 16), io.data_in_new(i)(15, 0))
+      }
+      is(12.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 16), io.data_in_old(i)(15, 0))
+      }
+      is(13.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 16), io.data_in_old(i)(15, 8),io.data_in_new(i)(7,0))
+      }
+      is(14.U) {
+        io.data_out(i) := Cat(io.data_in_new(i)(31, 8), io.data_in_old(i)(7,0))
+      }
+      is(15.U) {
+        io.data_out(i) := io.data_in_new(i)
+      }
+    }
+  }
+
+}
+
+// useless, this operation is done in LSU instead
 class relocateDataByte(numdata:Int, NLanes:Int) extends Module{
   val io = IO(new Bundle{
     val OriData = Input(Vec(numdata,UInt(NLanes.W)))
@@ -173,7 +264,7 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   val MshrAccess = Module(new MSHR(bABits = bABits, tIWidth = tIBits, WIdBits = WIdBits, NMshrEntry, NMshrSubEntry))
   //val missRspFromMshr_st1 = Wire(Bool())
   val missRspTI_st1 = Wire(new VecMshrTargetInfo)
-  val readmiss_sameadd = Wire(Bool())
+  val readmiss_st0_st1_match= Wire(Bool())
   val coreReq_st1_ready = Wire(Bool())
 
   val TagAccess = Module(new L1TagAccess(set=NSets, way=NWays, tagBits=TagBits,readOnly=false))
@@ -203,9 +294,13 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   val inflightReadWriteMiss = RegInit(false.B)
   val inflightreadwritemiss_w = (coreReqControl_st0_noen.isWrite && MshrAccess.io.mshrStatus_st0 =/= 0.U) || inflightReadWriteMiss
   // ******     pipeline regs      ******
-  coreReq_Q.io.enq.valid := io.coreReq.valid && !probereadAllocateWriteConflict && TagAccess.io.probeRead.ready  && (MshrAccess.io.mshrStatus_st0 =/= 3.U) && (MshrAccess.io.mshrStatus_st0 =/= 1.U)
-  val coreReq_st0_ready =  coreReq_Q.io.enq.ready && !probereadAllocateWriteConflict && !inflightreadwritemiss_w && !readmiss_sameadd && TagAccess.io.probeRead.ready && (MshrAccess.io.mshrStatus_st0 =/= 3.U)&& (MshrAccess.io.mshrStatus_st0 =/= 1.U)
-  io.coreReq.ready := coreReq_Q.io.enq.ready && !probereadAllocateWriteConflict && !inflightreadwritemiss_w &&  !readmiss_sameadd && TagAccess.io.probeRead.ready && (MshrAccess.io.mshrStatus_st0 =/= 3.U)&& (MshrAccess.io.mshrStatus_st0 =/= 1.U)
+  val coreReq_st0_ready_comb = !readmiss_st0_st1_match && TagAccess.io.probeRead.ready // except for enq ready
+  coreReq_Q.io.enq.valid := io.coreReq.valid && coreReq_st0_ready_comb
+
+  val coreReq_st0_ready =  coreReq_Q.io.enq.ready  && coreReq_st0_ready_comb
+
+  // val coreReq_st0_ready =  coreReq_Q.io.enq.ready && !probereadAllocateWriteConflict && !inflightreadwritemiss_w && !readmiss_sameadd && TagAccess.io.probeRead.ready && (MshrAccess.io.mshrStatus_st0 =/= 3.U)&& (MshrAccess.io.mshrStatus_st0 =/= 1.U)
+  //io.coreReq.ready := coreReq_Q.io.enq.ready && !probereadAllocateWriteConflict && !inflightreadwritemiss_w &&  !readmiss_sameadd && TagAccess.io.probeRead.ready && (MshrAccess.io.mshrStatus_st0 =/= 3.U)&& (MshrAccess.io.mshrStatus_st0 =/= 1.U)
   coreReq_Q.io.enq.bits := io.coreReq.bits
 
   val coreReq_st1 = coreReq_Q.io.deq.bits
@@ -241,17 +336,17 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   val readHit_st2_valid = Wire(Bool())
   readHit_st2_valid :=  readHit_st2.io.deq.fire && readHit_st2.io.deq.bits.asUInt.asBool
 
-  //val readHit_st2 = RegNext(readHit_st1 )
   val injectTagProbe = inflightReadWriteMiss ^ RegNext(inflightReadWriteMiss)//RegInit(false.B)//inflightReadWriteMiss && (mshrProbeStatus === 0.U)
-  readmiss_sameadd := MshrAccess.io.missReq.valid && (MshrAccess.io.probe.bits.blockAddr === MshrAccess.io.missReq.bits.blockAddr) &&
+  //when read miss st0 and st1 target to the same block, mshr is not updated
+  readmiss_st0_st1_match := MshrAccess.io.missReq.valid && (MshrAccess.io.probe.bits.blockAddr === MshrAccess.io.missReq.bits.blockAddr) &&
     io.coreReq.valid  && coreReq_Q.io.deq.valid
   // ******      l1_data_cache::coreReq_pipe0_cycle      ******
   coreReq_Q.io.deq.ready := coreReq_st1_ready &&
     !(coreReq_Q.io.deq.bits.opcode === 3.U && readHit_st1 && coreReq_st1_valid) //InvOrFlu希望在st0读Data SRAM，检查资源冲突
   // ******      tag probe      ******
   //val missRspWriteEnable = Wire(Bool())
-  TagAccess.io.probeRead.valid := io.coreReq.fire || injectTagProbe
-  TagAccess.io.probeRead.bits.setIdx := Mux(injectTagProbe,coreReq_st1.setIdx,io.coreReq.bits.setIdx)
+  TagAccess.io.probeRead.valid := io.coreReq.fire
+  TagAccess.io.probeRead.bits.setIdx := io.coreReq.bits.setIdx
   TagAccess.io.tagFromCore_st1 := coreReq_st1.tag
   TagAccess.io.tagready_st1 := coreReq_st1_ready//coreRsp_st2_valid_from_coreReq_Reg.io.enq.ready
 
@@ -718,7 +813,7 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   memReq_Q.io.enq <> MemReqArb.io.out
   MemReqArb.io.in(0).valid := tagReplaceStatus
   MemReqArb.io.in(0).bits := dirtyReplace_st1
-  MemReqArb.io.in(1).valid := coreReq_st1_valid  && coreReq_Q.io.deq.fire() && ((writeMiss_st1 || readMiss_st1) && mshrProbeStatus === 0.U) && !injectTagProbe
+  MemReqArb.io.in(1).valid := coreReq_st1_valid  && coreReq_Q.io.deq.fire() && ((writeMiss_st1 || readMiss_st1) && mshrProbeStatus === 0.U) //&& !injectTagProbe
   MemReqArb.io.in(1).bits := missMemReq
   MemReqArb.io.in(2).valid := Mux(invalidatenodirty,flushL2 && WshrAccess.io.empty,RegNext(InvOrFluMemReqValid_st1))
   MemReqArb.io.in(2).bits := InvOrFluMemReq
