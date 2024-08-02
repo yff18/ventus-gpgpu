@@ -345,7 +345,7 @@ class MSHRv2(val bABits: Int, val tIWidth: Int, val WIdBits: Int, val NMshrEntry
   // head of entry, for comparison
   val blockAddr_Access = RegInit(VecInit(Seq.fill(NMshrEntry)(0.U(bABits.W))))
   val targetInfo_Accesss = RegInit(VecInit(Seq.fill(NMshrEntry)(VecInit(Seq.fill(NMshrSubEntry)(0.U(tIWidth.W))))))
-  val cacheStatus_Access = RegInit(VecInit(Seq.fill(NMshrEntry)(VecInit(Seq.fill(NMshrSubEntry)(false.B)))))
+  val cacheStatus_Access = RegInit(VecInit(Seq.fill(NMshrEntry)(false.B)))
 
   val subentry_valid = RegInit(VecInit(Seq.fill(NMshrEntry)(VecInit(Seq.fill(NMshrSubEntry)(false.B)))))
   val entry_valid = Reverse(Cat(subentry_valid.map(Cat(_).orR)))
@@ -373,7 +373,6 @@ class MSHRv2(val bABits: Int, val tIWidth: Int, val WIdBits: Int, val NMshrEntry
   entryStatus.io.valid_list := entry_valid
 
   // ******     enum vec_mshr_status     ******
-  val mshrStatus_st1_r = RegInit(0.U(3.W))
   val mshrStatus_st1_w = Wire(UInt(3.W))
   val mshrStatus_st0 = Wire(UInt(3.W))
 
@@ -393,10 +392,8 @@ class MSHRv2(val bABits: Int, val tIWidth: Int, val WIdBits: Int, val NMshrEntry
   val secondaryMiss = entryMatchProbe.orR
   val primaryMiss = !secondaryMiss
   val mainEntryFull = entryStatus.io.full
-  val mainEntryAlmFull = entryStatus.io.alm_full
   subentryStatus.io.valid_list := subentry_valid(entryMatchProbeid)
   val subentryFull_sel = subentryStatus.io.full
-  val subentryAlmFull_sel = subentryStatus.io.alm_full
   val subentryAvail_sel = !subentryStatus.io.full
   val RspReqMatch = (blockAddr_Access(entryMatchMissRsp) === io.missReq.bits.blockAddr) && io.missReq.valid && io.missRspIn.valid
 
@@ -429,11 +426,14 @@ class MSHRv2(val bABits: Int, val tIWidth: Int, val WIdBits: Int, val NMshrEntry
   val real_SRAMAddrDown = Mux(secondaryMiss, subEntryIdx_st1, 0.U)
   when(io.missReq.fire) {
     targetInfo_Accesss(real_SRAMAddrUp)(real_SRAMAddrDown) := io.missReq.bits.targetInfo
-    cacheStatus_Access(real_SRAMAddrUp)(real_SRAMAddrDown) := io.missReq.bits.missUncached
+//    cacheStatus_Access(real_SRAMAddrUp)(real_SRAMAddrDown) := io.missReq.bits.missUncached
   }
 
   when(io.missReq.fire && mshrStatus_st1_w === 0.U) { //PRIMARY_AVAIL
     blockAddr_Access(entryStatus.io.next) := io.missReq.bits.blockAddr
+  }
+  when(io.missReq.fire){
+    cacheStatus_Access(real_SRAMAddrUp) := io.missReq.bits.missUncached
   }
 
   io.probeOut_st1.a_source := Mux(io.missReq.valid,real_SRAMAddrUp,entryMatchProbeid)

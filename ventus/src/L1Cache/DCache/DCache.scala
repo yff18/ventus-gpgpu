@@ -16,7 +16,7 @@ import SRAMTemplate._
 import chisel3._
 import chisel3.util._
 import config.config.Parameters
-import top.parameters.{NUMBER_CU, dcache_BlockWords, dcache_MshrEntry, dcache_NSets, num_thread}
+import top.parameters.{NUMBER_CU, dcache_BlockWords, dcache_MshrEntry, dcache_NSets, num_block, num_thread}
 //import pipeline.parameters._
 
 class VecMshrTargetInfo(implicit p: Parameters)extends DCacheBundle{
@@ -133,96 +133,6 @@ class genDataMapSameWord(implicit p: Parameters) extends DCacheModule{
   }
 }
 
-class DataXbar(implicit p: Parameters) extends DCacheModule{
-  val io = IO(new Bundle {
-    val perLaneAddr = Input(Vec(NLanes, new DCachePerLaneAddr))
-    val datain = Input(Vec(NLanes,UInt(WordLength.W)))
-    val perBlockMask = Output(Vec(dcache_BlockWords,UInt(BytesOfWord.W)))
-    val dataout = Output(Vec(dcache_BlockWords,UInt(WordLength.W)))
-  })
-  val LaneBlockConv = Wire(Vec(dcache_BlockWords,Vec(NLanes,UInt(1.W))))
-  val WordOffsetConv = Wire(Vec(dcache_BlockWords,UInt(BytesOfWord.W)))
-
-  for (j <- 0 until dcache_BlockWords) {
-    for (i <- 0 until NLanes) {
-      when(io.perLaneAddr(i).blockOffset === j.asUInt && io.perLaneAddr(i).activeMask) {
-        LaneBlockConv(j)(i) := 1.U
-      }.otherwise {
-        LaneBlockConv(j)(i) := 0.U
-      }
-    }
-  }
-  for (j <- 0 until dcache_BlockWords) {
-    io.dataout(j) := io.datain.zip(LaneBlockConv(j)).map { case (a, b) => Mux(b.asBool, a, 0.U) }.reduce(_ | _)
-    WordOffsetConv(j) := io.perLaneAddr.zip(LaneBlockConv(j)).map { case (a, b) => Mux(b.asBool, a.wordOffset1H, 0.U) }.reduce(_ | _)
-    io.perBlockMask(j) := WordOffsetConv(j)
-  }
-}
-
-class DataGather(implicit p: Parameters) extends DCacheModule{
-  val io = IO(new Bundle {
-    val data_in_old = Input(Vec(dcache_BlockWords, UInt(WordLength.W)))
-    val data_in_new = Input(Vec(dcache_BlockWords, UInt(WordLength.W)))
-    val mask_in_new = Input(Vec(dcache_BlockWords,UInt(BytesOfWord.W)))
-    val data_out = Output(Vec(dcache_BlockWords, UInt(WordLength.W)))
-  })
-  val data = Wire(Vec(dcache_BlockWords,Vec(BytesOfWord,UInt(8.W))))
-  for(i<-0 until dcache_BlockWords){
-    switch(io.mask_in_new(i)){
-      is(0.U){
-        io.data_out(i) := io.data_in_old(i)
-      }
-      is(1.U){
-        io.data_out(i) := Cat(io.data_in_old(i)(31,8),io.data_in_new(i)(7,0))
-      }
-      is(2.U){
-        io.data_out(i) := Cat(io.data_in_old(i)(31,16),io.data_in_new(i)(15,8),io.data_in_old(i)(7,0))
-      }
-      is(3.U) {
-        io.data_out(i) := Cat(io.data_in_old(i)(31, 16), io.data_in_new(i)(15,0))
-      }
-      is(4.U) {
-        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 16), io.data_in_old(i)(15, 0))
-      }
-      is(5.U) {
-        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 16), io.data_in_old(i)(15, 8),io.data_in_new(i)(7,0))
-      }
-      is(6.U) {
-        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 8), io.data_in_old(i)(7, 0))
-      }
-      is(7.U) {
-        io.data_out(i) := Cat(io.data_in_old(i)(31, 24), io.data_in_new(i)(23, 0))
-      }
-      is(8.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 0))
-      }
-      is(9.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 8),io.data_in_new(i)(7,0))
-      }
-      is(10.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 16), io.data_in_new(i)(15, 8),io.data_in_old(i)(7, 0))
-      }
-      is(11.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 24), io.data_in_old(i)(23, 16), io.data_in_new(i)(15, 0))
-      }
-      is(12.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 16), io.data_in_old(i)(15, 0))
-      }
-      is(13.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 16), io.data_in_old(i)(15, 8),io.data_in_new(i)(7,0))
-      }
-      is(14.U) {
-        io.data_out(i) := Cat(io.data_in_new(i)(31, 8), io.data_in_old(i)(7,0))
-      }
-      is(15.U) {
-        io.data_out(i) := io.data_in_new(i)
-      }
-    }
-  }
-
-}
-
-// useless, this operation is done in LSU instead
 class relocateDataByte(numdata:Int, NLanes:Int) extends Module{
   val io = IO(new Bundle{
     val OriData = Input(Vec(numdata,UInt(NLanes.W)))
@@ -287,6 +197,7 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   val remapDataPerWord = Module(new genDataMapSameWord)
   val coreReqControl_st0_noen = Wire(new DCacheControl)
   val coreRsp_st2_valid_from_coreReq_Reg = Module(new Queue(Bool(),1,true,false))
+  val coreRsp_st2_coreRsp_data = Module(new Queue(Vec(dcache_BlockWords, UInt(WordLength.W)),1,true,false))
   //val recData = Module(new relocateDataByte(BlockWords,WordLength))
   //val recDataMemRsp = Module(new relocateDataByte(BlockWords,WordLength))
   val waitforL2flush = RegInit(false.B)
@@ -503,7 +414,7 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   coreReq_st1_ready := false.B
   when(coreReqControl_st1_Q.io.deq.bits.isRead || coreReqControl_st1_Q.io.deq.bits.isWrite){
     when(TagAccess.io.hit_st1) {
-      when(coreRsp_st2.io.enq.ready && coreRsp_st2_valid_from_coreReq_Reg.io.enq.ready&& !(MshrAccess.io.missRspOut.valid && !secondaryFullReturn)) {
+      when(coreRsp_st2.io.enq.ready &&  coreRsp_st2_valid_from_coreReq_Reg.io.enq.ready&& !(MshrAccess.io.missRspOut.valid && !secondaryFullReturn)) {
         coreReq_st1_ready := true.B
       }
     }.otherwise{//Miss
@@ -704,8 +615,13 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
   // ******      data crossbar(Mem order to Core order)     ******
   val coreRsp_st2_dataMemOrder = Wire(Vec(BlockWords, UInt(WordLength.W)))
   val coreRsp_st2_dataCoreOrder = Wire(Vec(NLanes, UInt(WordLength.W)))
+  // hold dataaccess rsp data, when coreRsp CAN'T handle coreReq rsp (memreq conflict)
+  coreRsp_st2_coreRsp_data.io.enq.valid := coreRsp_st2_valid_from_coreReq_Reg.io.deq.valid && !coreRsp_st2_valid_from_coreReq_Reg.io.deq.ready && RegNext(readHit_st1)
+  coreRsp_st2_coreRsp_data.io.enq.bits := DataAccessReadSRAMRRsp
+  coreRsp_st2_coreRsp_data.io.deq.ready := coreRsp_st2_valid_from_coreReq_Reg.io.deq.ready
+  val DataAccessReadHit = Mux(coreRsp_st2_coreRsp_data.io.deq.valid,coreRsp_st2_coreRsp_data.io.deq.bits,DataAccessReadSRAMRRsp)
 
-  coreRsp_st2_dataMemOrder := Mux(readHit_st2_valid, DataAccessReadSRAMRRsp, coreRsp_st2.io.deq.bits.data) //memRsp for latter
+  coreRsp_st2_dataMemOrder := Mux(readHit_st2_valid, DataAccessReadHit, coreRsp_st2.io.deq.bits.data) //memRsp for latter
   for (i <- 0 until NLanes) {
     coreRsp_st2_dataCoreOrder(i) := coreRsp_st2_dataMemOrder(coreRsp_st2_perLaneAddr(i).blockOffset)
   }
@@ -802,7 +718,13 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
 
   InvOrFluMemReq.a_data := DataAccessReadSRAMRRsp
   val flushL2 = Wire(Bool())
-  val flushL2_Reg = RegEnable(flushL2,MemReqArb.io.in(2).fire())
+  val flushL2_Reg = RegInit(false.B)
+  when(MemReqArb.io.in(2).fire){
+    flushL2_Reg := flushL2
+  }.elsewhen(memRspIsFluOrInv){
+    flushL2_Reg := false.B
+  }
+
   flushL2 :=  (invalidatenodirty && MemReqArb.io.in(2).ready && !flushL2_Reg)
   when(flushL2){
     InvOrFluAlreadyflush := true.B
@@ -842,7 +764,7 @@ class DataCache(implicit p: Parameters) extends DCacheModule{
 
   memReq_Q.io.deq.ready := wshrPass && io.memReq.ready && !coreRsp_st2_valid_from_memRsp
 
-  when(wshrPass && memReq_Q.io.deq.fire {
+  when(wshrPass && memReq_Q.io.deq.fire) {
     memReq_st3 := memReq_Q.io.deq.bits
   }
 
